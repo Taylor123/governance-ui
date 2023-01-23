@@ -4,10 +4,19 @@ import {
 } from '@project-serum/anchor'
 import { useEffect, useMemo, useState } from 'react'
 import useWallet from '@hooks/useWallet'
-import { OptionMarket, PSY_AMERICAN_PROGRAM_ID } from './index'
+import {
+  OptionMarket,
+  PsyLendIdl,
+  PSYLEND_DEVNET_PROGRAM_ID,
+  PSYLEND_MAINNET_PROGRAM_ID,
+  PSY_AMERICAN_PROGRAM_ID,
+} from './index'
 import { PsyAmericanIdl } from './PsyAmericanIdl'
 import useGovernanceAssets from '@hooks/useGovernanceAssets'
 import { AssetAccount } from '@utils/uiTypes/assets'
+import { ReserveAccount } from './types'
+
+/* American Option program */
 
 /**
  * Return entire list of PsyOption American options.
@@ -79,4 +88,32 @@ export const useGovernedOptionTokenAccounts = (
     })
     return _accounts
   }, [governedTokenAccountsWithoutNfts, options])
+}
+
+/* Borrow/Lend program */
+
+export const useReserves = () => {
+  const { anchorProvider, connection } = useWallet()
+  const [reserves, setReserves] = useState<
+    AnchorProgramAccount<ReserveAccount>[]
+  >([])
+
+  useEffect(() => {
+    const program = new Program(
+      PsyLendIdl,
+      connection.cluster === 'devnet'
+        ? PSYLEND_DEVNET_PROGRAM_ID
+        : PSYLEND_MAINNET_PROGRAM_ID,
+      anchorProvider
+    )
+
+    ;(async () => {
+      const _reserveAccounts = await program.account.reserve.all()
+      setReserves(
+        (_reserveAccounts as unknown) as AnchorProgramAccount<ReserveAccount>[]
+      )
+    })()
+  }, [anchorProvider, connection.cluster])
+
+  return reserves
 }
