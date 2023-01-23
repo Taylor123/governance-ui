@@ -1,5 +1,6 @@
 import { Governance, InstructionData } from '@solana/spl-governance'
 import { ProgramAccount } from '@solana/spl-governance'
+import { ProgramAccount as AnchorProgramAccount } from '@project-serum/anchor'
 import { RpcContext } from '@solana/spl-governance'
 import { MintInfo } from '@solana/spl-token'
 import { PublicKey, Keypair, TransactionInstruction } from '@solana/web3.js'
@@ -11,6 +12,7 @@ import { consts as foresightConsts } from '@foresight-tmp/foresight-sdk'
 import { AssetAccount, StakeAccount } from '@utils/uiTypes/assets'
 import { RealmInfo } from '@models/registry/api'
 import * as Msp from '@mean-dao/msp'
+import { ReserveAccount } from '@utils/instructions/PsyFinance'
 
 // Alphabetical order
 export enum PackageEnum {
@@ -420,6 +422,16 @@ export interface PsyFinanceExerciseOption {
 
 /* End PsyOptions American options */
 
+/* PsyLend */
+
+export interface PsyLendSupplyForm {
+  size: number
+  reserve: AnchorProgramAccount<ReserveAccount> | undefined
+  sourceAccount: AssetAccount | undefined
+}
+
+/* End PsyLend */
+
 export interface ForesightHasGovernedAccount {
   governedAccount: AssetAccount
 }
@@ -626,6 +638,7 @@ export enum Instructions {
   PsyFinanceClaimUnderlyingPostExpiration,
   PsyFinanceExerciseOption,
   PsyFinanceMintAmericanOptions,
+  PsyLendSupplyCollateral,
   RealmConfig,
   RefreshSolendObligation,
   RefreshSolendReserve,

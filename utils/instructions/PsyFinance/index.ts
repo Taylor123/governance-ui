@@ -13,9 +13,15 @@ import {
   TransactionInstruction,
 } from '@solana/web3.js'
 import { PsyAmerican } from './PsyAmericanIdl'
-import { OptionMarket, OptionMarketWithKey } from './types'
+import {
+  OptionMarket,
+  OptionMarketWithKey,
+  ReserveConfig,
+  ReserveStateStruct,
+} from './types'
 
 export { PsyAmericanIdl } from './PsyAmericanIdl'
+export { PsyLendIdl } from './PsyLendIdl'
 export * from './types'
 export * from './hooks'
 
@@ -24,6 +30,14 @@ export const PSY_AMERICAN_PROGRAM_ID = new PublicKey(
 )
 const FEE_OWNER_KEY = new PublicKey(
   '6c33US7ErPmLXZog9SyChQUYUrrJY51k4GmzdhrbhNnD'
+)
+
+export const PSYLEND_DEVNET_PROGRAM_ID = new PublicKey(
+  '8bpiM4yhcLYMSeCBTVFWisneXPQQWPYSA5ZpMm4DKAgT'
+)
+
+export const PSYLEND_MAINNET_PROGRAM_ID = new PublicKey(
+  'PLENDj46Y4hhqitNV2WqLqGLrWKAaH2xJHm2UyHgJLY'
 )
 
 /* Most utility functions are copy/pasta from `@mithraic-labs/psy-american` package  */
@@ -279,5 +293,198 @@ const getOrAddAssociatedTokenAccountTx = async (
     owner,
     // @ts-ignore
     provider.wallet.publicKey
+  )
+}
+
+/* Borrow/Lend */
+
+const decodeU128Array = (buff: Buffer, start: number, length: number) => {
+  const decodedData: BN[] = []
+  let sliceStart = start
+  for (let i = 0; i < length; i++) {
+    decodedData.push(
+      new BN(buff.slice(sliceStart, sliceStart + 16), undefined, 'le')
+    )
+    sliceStart += 16
+  }
+  return decodedData
+}
+
+/**
+ * When fetching a ReserveAccount, the ReserveStateStruct can be converted to a buffer and then read
+ * using this function.
+ *
+ * Use `Buffer.from(reserve.state as any as number[])` to convert Reserve state to a buffer
+ * @param buff
+ * @returns
+ */
+export const decodeReserveStateStruct = (buff: Buffer): ReserveStateStruct => ({
+  accruedUntil: new BN(buff.slice(0, 0 + 8), undefined, 'le'),
+  outstandingDebt: new BN(buff.slice(8, 8 + 24), undefined, 'le'),
+  uncollectedFees: new BN(buff.slice(32, 32 + 24), undefined, 'le'),
+  totalDeposits: new BN(buff.slice(56, 56 + 8), undefined, 'le'),
+  totalDepositNotes: new BN(buff.slice(64, 64 + 8), undefined, 'le'),
+  totalLoanNotes: new BN(buff.slice(72, 72 + 8), undefined, 'le'),
+  cummulativeDepositRewardUnits: decodeU128Array(buff, 80, 96),
+  cummulativeLoanRewardUnits: decodeU128Array(buff, 1616, 96),
+  //Reserved is 416 bytes...
+  _reserved: [],
+  lastUpdated: new BN(buff.slice(3568, 3568 + 8), undefined, 'le'),
+  invalidated: Boolean(buff.slice(3576, 3576 + 1).readInt8()),
+  _reservedCache: [],
+})
+
+export const lendBNToNumber = (lendNumber: BN) => {
+  const lendNumberBase = 10 ** 15
+  if (lendNumber.lt(new BN(Number.MAX_SAFE_INTEGER))) {
+    return Number(lendNumber) / lendNumberBase
+  }
+
+  const numberLen = lendNumber.toString().length
+  const baseToDivide = numberLen - 15
+  if (baseToDivide > 15) {
+    console.log(
+      'Precision loss warning. Dividing by more than 15 decimals will result in non-floating point precision loss.'
+    )
+  }
+  const divisor = new BN(10).pow(new BN(baseToDivide))
+  return Number(lendNumber.div(divisor)) / 10 ** (15 - baseToDivide)
+}
+
+/** Linear interpolation between (x0, y0) and (x1, y1) */
+export const interpolate = (
+  x: number,
+  x0: number,
+  x1: number,
+  y0: number,
+  y1: number
+): number => y0 + ((x - x0) * (y1 - y0)) / (x1 - x0)
+
+export const getBorrowAPR = (
+  reserveConfig: ReserveConfig,
+  utilRate: number
+): number => {
+  const basisPointFactor = 10000
+  const util1 = reserveConfig.utilizationRate1 / basisPointFactor
+  const util2 = reserveConfig.utilizationRate2 / basisPointFactor
+  const borrow0 = reserveConfig.borrowRate0 / basisPointFactor
+  const borrow1 = reserveConfig.borrowRate1 / basisPointFactor
+  const borrow2 = reserveConfig.borrowRate2 / basisPointFactor
+  const borrow3 = reserveConfig.borrowRate3 / basisPointFactor
+
+  if (utilRate <= util1) {
+    return interpolate(utilRate, 0, util1, borrow0, borrow1)
+  } else if (utilRate <= util2) {
+    return interpolate(utilRate, util1, util2, borrow1, borrow2)
+  } else {
+    return interpolate(utilRate, util2, 1, borrow2, borrow3)
+  }
+}
+
+/**
+ * Calculates and return reserve's supply APR.
+ * @param borrowRate - Borrow APR, specified in percentage.
+ * @param fee - Manage fee, specified in basis points.
+ * @param utilizationRate - Utilization ratio of reserve.
+ * @returns keys and ReserveAccount data per market
+ */
+export const getSupplyAPR = (
+  borrowRate: number,
+  fee: number,
+  utilizationRate: number
+): number => {
+  const basisPointFactor = 10000
+  fee = fee / basisPointFactor
+  if (borrowRate <= 0) {
+    return 0
+  }
+  return borrowRate * (1 - fee) * utilizationRate
+}
+
+export const convertAprToApy = (apr: number) => {
+  const stakingEpochsPerYear = 365 / 2
+  const perStakingEpochYield = apr / stakingEpochsPerYear / 100
+  const fractionalStakingApy =
+    (1 + perStakingEpochYield) ** stakingEpochsPerYear - 1
+  return fractionalStakingApy * 100
+}
+
+export const deriveUserDeposits = async (
+  programId: PublicKey,
+  reserveAddress: PublicKey,
+  userAddress: PublicKey
+) =>
+  PublicKey.findProgramAddress(
+    [Buffer.from('deposits'), reserveAddress.toBytes(), userAddress.toBytes()],
+    programId
+  )
+
+export const deriveUserObligation = async (
+  programId: PublicKey,
+  marketAddress: PublicKey,
+  userAddress: PublicKey
+) =>
+  PublicKey.findProgramAddress(
+    [Buffer.from('obligation'), marketAddress.toBytes(), userAddress.toBytes()],
+    programId
+  )
+
+export const deriveUserLoan = async (
+  programId: PublicKey,
+  reserveAddress: PublicKey,
+  obligationAddress: PublicKey,
+  userAddress: PublicKey
+) =>
+  PublicKey.findProgramAddress(
+    [
+      Buffer.from('loan'),
+      reserveAddress.toBytes(),
+      obligationAddress.toBytes(),
+      userAddress.toBytes(),
+    ],
+    programId
+  )
+
+export const deriveUserCollateral = async (
+  programId: PublicKey,
+  reserveAddress: PublicKey,
+  obligationAddress: PublicKey,
+  userAddress: PublicKey
+) =>
+  PublicKey.findProgramAddress(
+    [
+      Buffer.from('collateral'),
+      reserveAddress.toBytes(),
+      obligationAddress.toBytes(),
+      userAddress.toBytes(),
+    ],
+    programId
+  )
+
+export const TOKENS = 0
+export const DEPOSIT_NOTES = 1
+export const LOAN_NOTES = 2
+
+export class Amount {
+  constructor(public units: number, public value: BN) {}
+
+  static tokens(amount: BN): Amount {
+    return new Amount(TOKENS, new BN(amount))
+  }
+
+  static depositNotes(amount: BN): Amount {
+    return new Amount(DEPOSIT_NOTES, new BN(amount))
+  }
+
+  static loanNotes(amount: BN): Amount {
+    return new Amount(LOAN_NOTES, new BN(amount))
+  }
+}
+
+export const getLendingAccrualRefreshCount = (accruedUntil: number) => {
+  const currentUnixTimestamp = Math.floor(Date.now() / 1000)
+  return Math.max(
+    (currentUnixTimestamp - accruedUntil) / 604800, // week in seconds
+    1
   )
 }
