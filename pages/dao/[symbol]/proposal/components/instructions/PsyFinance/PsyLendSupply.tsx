@@ -24,12 +24,7 @@ import {
   PSYLEND_MAINNET_PROGRAM_ID,
   useReserves,
 } from '@utils/instructions/PsyFinance'
-import {
-  PublicKey,
-  SystemProgram,
-  SYSVAR_RENT_PUBKEY,
-  TransactionInstruction,
-} from '@solana/web3.js'
+import { PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY } from '@solana/web3.js'
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   Token,
@@ -93,7 +88,6 @@ const PsyLendSupply = ({
         : PSYLEND_MAINNET_PROGRAM_ID,
       anchorProvider
     )
-    const prerequisiteInstructions: TransactionInstruction[] = []
 
     const owner = form.sourceAccount.isSol
       ? (form.sourceAccount.extensions.transferAddress as PublicKey)
@@ -303,7 +297,6 @@ const PsyLendSupply = ({
       additionalSerializedInstructions,
       serializedInstruction: serializeInstructionToBase64(ix2),
       isValid: true,
-      prerequisiteInstructions,
       governance: form.sourceAccount?.governance,
     }
   }

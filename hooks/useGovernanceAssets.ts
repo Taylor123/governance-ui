@@ -743,6 +743,10 @@ export default function useGovernanceAssets() {
       name: '[Borrow/Lend] Supply',
       packageId: PackageEnum.PsyFinance,
     },
+    [Instructions.PsyLendWithdrawCollateral]: {
+      name: '[Borrow/Lend] Withdraw',
+      packageId: PackageEnum.PsyFinance,
+    },
 
     /*
       ███████ ███████ ██████  ██    ██ ███    ███

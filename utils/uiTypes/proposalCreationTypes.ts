@@ -435,6 +435,12 @@ export interface PsyLendSupplyForm {
   sourceAccount: AssetAccount | undefined
 }
 
+export interface PsyLendWithdrawForm {
+  size: number
+  reserve: AnchorProgramAccount<ReserveAccount> | undefined
+  destinationAccount: AssetAccount | undefined
+}
+
 /* End PsyLend */
 
 export interface ForesightHasGovernedAccount {
@@ -644,6 +650,7 @@ export enum Instructions {
   PsyFinanceExerciseOption,
   PsyFinanceMintAmericanOptions,
   PsyLendSupplyCollateral,
+  PsyLendWithdrawCollateral,
   RealmConfig,
   RefreshSolendObligation,
   RefreshSolendReserve,
