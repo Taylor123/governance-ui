@@ -14,10 +14,12 @@ import { useMemo } from 'react'
 import { abbreviateAddress } from '@utils/formatting'
 
 export const PsyLendReserveSelector = ({
+  disabled,
   onChange,
   reserves,
   value,
 }: {
+  disabled?: boolean
   onChange: (val: ProgramAccount<ReserveAccount>) => void
   reserves: ProgramAccount<ReserveAccount>[]
   value: ProgramAccount<ReserveAccount> | undefined
@@ -25,6 +27,7 @@ export const PsyLendReserveSelector = ({
   return (
     <Select
       componentLabel={value ? <ReserveView reserve={value} /> : undefined}
+      disabled={disabled}
       label="Lending reserve"
       onChange={onChange}
       value={value?.publicKey.toBase58()}

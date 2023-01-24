@@ -138,6 +138,7 @@ import PsyFinanceBurnWriterTokenForQuote from './components/instructions/PsyFina
 import PsyFinanceClaimUnderlyingPostExpiration from './components/instructions/PsyFinance/ClaimUnderlyingPostExpiration'
 import PsyFinanceExerciseOption from './components/instructions/PsyFinance/ExerciseOption'
 import PsyLendSupply from './components/instructions/PsyFinance/PsyLendSupply'
+import PsyLendWithdraw from './components/instructions/PsyFinance/PsyLendWithdraw'
 
 const TITLE_LENGTH_LIMIT = 130
 
@@ -473,6 +474,7 @@ const New = () => {
       [Instructions.PsyFinanceClaimUnderlyingPostExpiration]: PsyFinanceClaimUnderlyingPostExpiration,
       [Instructions.PsyFinanceExerciseOption]: PsyFinanceExerciseOption,
       [Instructions.PsyLendSupplyCollateral]: PsyLendSupply,
+      [Instructions.PsyLendWithdrawCollateral]: PsyLendWithdraw,
       [Instructions.SwitchboardAdmitOracle]: SwitchboardAdmitOracle,
       [Instructions.SwitchboardRevokeOracle]: SwitchboardRevokeOracle,
       [Instructions.RefreshSolendObligation]: RefreshObligation,
