@@ -25,20 +25,16 @@ import {
   useReservesWithCollateral,
 } from '@utils/instructions/PsyFinance'
 import {
+  Keypair,
   PublicKey,
   SystemProgram,
   TransactionInstruction,
 } from '@solana/web3.js'
-import {
-  ASSOCIATED_TOKEN_PROGRAM_ID,
-  Token,
-  TOKEN_PROGRAM_ID,
-} from '@solana/spl-token'
+import { Token, TOKEN_PROGRAM_ID, AccountLayout } from '@solana/spl-token'
 import { BN } from 'bn.js'
 import { PsyLendReserveSelector } from './Components/PsyLendReserveSelector'
 import useGovernanceAssets from '@hooks/useGovernanceAssets'
 import { WSOL_MINT_PK } from '@components/instructions/tools'
-import { getATA } from '@utils/ataTools'
 
 const formReducer = (
   state: PsyLendWithdrawForm,
@@ -58,10 +54,6 @@ const PsyLendWithdraw = ({
   const { anchorProvider, connection, wallet } = useWallet()
   const { governedTokenAccountsWithoutNfts } = useGovernanceAssets()
   const { handleSetInstructions } = useContext(NewProposalContext)
-  const governedTokenAccountsWithoutNativeSol = useMemo(
-    () => governedTokenAccountsWithoutNfts.filter((a) => !a.isSol),
-    [governedTokenAccountsWithoutNfts]
-  )
 
   const [form, dispatch] = useReducer(formReducer, {
     size: 0,
@@ -106,7 +98,9 @@ const PsyLendWithdraw = ({
         : PSYLEND_MAINNET_PROGRAM_ID,
       anchorProvider
     )
+    const prerequisiteInstructions: TransactionInstruction[] = []
     const instructions: TransactionInstruction[] = []
+    const signers: Keypair[] = []
 
     // NOTE native sol handling is temporary disabled, users must select WSol accounts.
     const owner = form.destinationAccount.isSol
@@ -147,24 +141,27 @@ const PsyLendWithdraw = ({
       form.destinationAccount.extensions.token?.publicKey ?? PublicKey.default
 
     if (form.destinationAccount.isSol) {
-      const { currentAddress: wSolAddress, needToCreateAta } = await getATA({
-        connection: connection,
-        receiverAddress: form.destinationAccount.pubkey,
-        mintPK: WSOL_MINT_PK,
-        wallet,
+      const newAccount = Keypair.generate()
+      signers.push(newAccount)
+      destinationSplAccount = newAccount.publicKey
+      const rent = await connection.current.getMinimumBalanceForRentExemption(
+        AccountLayout.span
+      )
+      const createAccountIx = SystemProgram.createAccount({
+        fromPubkey: wallet.publicKey!,
+        newAccountPubkey: newAccount.publicKey,
+        lamports: rent,
+        space: AccountLayout.span,
+        programId: TOKEN_PROGRAM_ID,
       })
-      if (needToCreateAta) {
-        const ix = Token.createAssociatedTokenAccountInstruction(
-          ASSOCIATED_TOKEN_PROGRAM_ID,
-          TOKEN_PROGRAM_ID,
-          WSOL_MINT_PK,
-          wSolAddress,
-          owner,
-          owner
-        )
-        instructions.push(ix)
-      }
-      destinationSplAccount = wSolAddress
+      prerequisiteInstructions.push(createAccountIx)
+      const initAccountIx = Token.createInitAccountInstruction(
+        TOKEN_PROGRAM_ID,
+        WSOL_MINT_PK,
+        newAccount.publicKey,
+        owner
+      )
+      prerequisiteInstructions.push(initAccountIx)
     }
     const accrueIx = await program.methods
       .accrueInterest()
@@ -227,19 +224,14 @@ const PsyLendWithdraw = ({
     instructions.push(ix2)
 
     if (form.destinationAccount.isSol) {
-      const solTransferIx = SystemProgram.transfer({
-        fromPubkey: destinationSplAccount,
-        toPubkey: owner,
-        lamports: size,
-      })
-      instructions.push(solTransferIx)
-      instructions.push(
-        // @ts-expect-error this exists!
-        Token.createSyncNativeInstruction(
-          TOKEN_PROGRAM_ID,
-          destinationSplAccount
-        )
+      const closeAccountIx = Token.createCloseAccountInstruction(
+        TOKEN_PROGRAM_ID,
+        destinationSplAccount,
+        owner,
+        owner,
+        []
       )
+      instructions.push(closeAccountIx)
     }
     const finalInstruction = instructions.pop() as TransactionInstruction
 
@@ -247,6 +239,8 @@ const PsyLendWithdraw = ({
       additionalSerializedInstructions: instructions.map(
         serializeInstructionToBase64
       ),
+      prerequisiteInstructions,
+      prerequisiteInstructionsSigners: signers,
       serializedInstruction: serializeInstructionToBase64(finalInstruction),
       isValid: true,
       governance: form.destinationAccount?.governance,
@@ -265,7 +259,7 @@ const PsyLendWithdraw = ({
     <>
       <GovernedAccountSelect
         label="Destination account"
-        governedAccounts={governedTokenAccountsWithoutNativeSol}
+        governedAccounts={governedTokenAccountsWithoutNfts}
         onChange={(value: AssetAccount) => {
           dispatch({
             destinationAccount: value,
